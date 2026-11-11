@@ -1,0 +1,179 @@
+# Physiotherapy Center Management Software - Development Plan
+# Database: physio (MySQL / phpMyAdmin)
+# Framework: Laravel (PHP 8.x)
+
+## 1. Project Overview & Architecture
+* **System Goal**: Build a complete Clinic Management & Electronic Medical Record (EMR) system tailored specifically for physiotherapy clinics, rehabilitation centers, and sports therapy practices.
+* **Technology Stack**:
+  * **Backend**: Laravel 11.x (PHP 8.3+)
+  * **Database**: MySQL (`physio` database on localhost/phpMyAdmin)
+  * **Frontend**: Blade Templates with Alpine.js / Tailwind CSS or Bootstrap 5 (or Livewire for real-time reactivity)
+  * **Calendar & Scheduling**: FullCalendar.js for interactive appointment booking
+  * **PDF Generation**: Barryvdh/laravel-dompdf for prescriptions, invoices, and assessment reports
+  * **Authentication & RBAC**: Laravel Breeze / Spatie Laravel-Permission
+
+---
+
+## 2. User Roles & Permissions
+* **Super Admin / Clinic Director**:
+  * Full access to all branches, financial reports, system configurations, and staff accounts.
+* **Physiotherapist / Specialist**:
+  * Access assigned appointments, patient case histories, SOAP assessment notes, treatment sessions, and exercise prescriptions.
+* **Front Desk / Receptionist**:
+  * Register new patients, book/reschedule appointments, manage walk-in queue, collect payments, and print invoices.
+* **Accountant / Cashier**:
+  * Manage billing, session package renewals, expense tracking, daily reconciliation, and tax reports.
+* **Patient (Optional Portal / Mobile View)**:
+  * View upcoming sessions, view prescribed home exercises (with diagrams/videos), and download invoices.
+
+---
+
+## 3. Database Schema Design (`physio` Database)
+* **User & Staff Management**:
+  * `users`: `id`, `name`, `email`, `password`, `phone`, `role`, `status`, `remember_token`, `timestamps`
+  * `therapist_profiles`: `id`, `user_id`, `qualification`, `specialization` (Neuro/Ortho/Sports/Pediatric), `license_no`, `slot_duration_minutes`, `consultation_fee`, `timestamps`
+  * `schedules`: `id`, `therapist_id`, `day_of_week`, `start_time`, `end_time`, `is_active`
+* **Patient Records (EMR)**:
+  * `patients`: `id`, `patient_uid` (e.g. PHY-2024-0001), `first_name`, `last_name`, `gender`, `dob`, `blood_group`, `phone`, `email`, `address`, `emergency_contact_name`, `emergency_contact_phone`, `occupation`, `referral_doctor_or_source`, `medical_history_summary`, `allergies`, `timestamps`
+* **Appointments & Queue (Clinic & Home Service)**:
+  * `appointments`: `id`, `appointment_no`, `patient_id`, `therapist_id`, `service_id`, `service_location` (`clinic`, `home_visit`), `home_address`, `home_landmark`, `travel_distance_km`, `travel_charge`, `appointment_date`, `start_time`, `end_time`, `travel_buffer_minutes`, `status` (`pending`, `confirmed`, `checked_in`, `in_progress`, `completed`, `cancelled`, `no_show`), `token_number`, `notes`, `timestamps`
+* **Clinical Assessments & SOAP Notes**:
+  * `assessments`: `id`, `patient_id`, `therapist_id`, `appointment_id`, `assessment_date`, `chief_complaint`, `onset_and_duration`, `pain_scale_initial` (0-10), `pain_location` / `body_part`, `posture_gait_analysis`, `range_of_motion_notes`, `muscle_strength_test`, `special_orthopedic_tests`, `provisional_diagnosis`, `goals_short_term`, `goals_long_term`, `timestamps`
+  * `soap_notes`: `id`, `patient_id`, `therapist_id`, `session_date`, `subjective`, `objective`, `assessment`, `plan`, `pain_score_current`, `timestamps`
+* **Treatment Plans & Session Tracking**:
+  * `treatment_plans`: `id`, `patient_id`, `therapist_id`, `diagnosis`, `prescribed_sessions_count`, `completed_sessions_count`, `frequency_per_week`, `start_date`, `expected_end_date`, `status` (`active`, `completed`, `paused`), `timestamps`
+  * `treatment_sessions`: `id`, `treatment_plan_id`, `patient_id`, `therapist_id`, `appointment_id`, `session_number`, `session_date`, `service_location` (`clinic`, `home_visit`), `modalities_used` (JSON: TENS, IFT, Ultrasound, Traction, Laser, Dry Needling, Cupping, etc.), `manual_therapy_notes`, `exercises_performed`, `patient_feedback_response`, `billing_type` (`per_session`, `package_deduction`), `payment_status` (`paid`, `unpaid`, `package_covered`), `invoice_id`, `next_session_date`, `timestamps`
+* **Exercise Library & Home Programs**:
+  * `exercise_library`: `id`, `title`, `target_body_part`, `category` (Strengthening, Mobility, Stretching, Balance), `instructions`, `image_url`, `video_url`, `is_active`, `timestamps`
+  * `prescribed_exercises`: `id`, `patient_id`, `therapist_id`, `exercise_id`, `sets`, `repetitions`, `hold_time_seconds`, `frequency_daily`, `notes`, `is_active`, `timestamps`
+* **Services, Packages & Billing (Bill Per Session & Package Models)**:
+  * `services`: `id`, `name`, `code`, `description`, `service_type` (`clinic_session`, `home_visit_session`, `consultation`, `modality`), `duration_minutes`, `base_rate`, `home_visit_additional_fee`, `tax_percentage`, `is_active`, `timestamps`
+  * `packages`: `id`, `package_name`, `total_sessions`, `service_type` (`clinic`, `home_visit`, `hybrid`), `validity_days`, `package_price`, `discount_rate`, `is_active`, `timestamps`
+  * `patient_packages`: `id`, `patient_id`, `package_id`, `total_sessions`, `used_sessions`, `purchase_date`, `expiry_date`, `status` (`active`, `exhausted`, `expired`), `timestamps`
+  * `invoices`: `id`, `invoice_no`, `patient_id`, `billing_model` (`bill_per_session`, `package_upfront`, `equipment_purchase`), `appointment_id`, `treatment_session_id`, `package_id`, `service_charge`, `travel_charge`, `subtotal`, `discount_amount`, `tax_amount`, `total_amount`, `paid_amount`, `balance_amount`, `payment_status` (`paid`, `partial`, `unpaid`), `invoice_date`, `due_date`, `timestamps`
+  * `payments`: `id`, `invoice_id`, `patient_id`, `amount`, `payment_method` (`cash`, `upi`, `card`, `bank_transfer`), `transaction_ref`, `received_by_user_id`, `payment_date`, `timestamps`
+* **Inventory & Equipment**:
+  * `equipments`: `id`, `name`, `serial_number`, `model`, `purchase_date`, `maintenance_due_date`, `status` (`operational`, `under_maintenance`, `out_of_order`), `timestamps`
+  * `consumables`: `id`, `item_name`, `unit`, `current_stock`, `reorder_threshold`, `timestamps`
+
+---
+
+## 4. Core Functional Modules
+
+### A. Patient Onboarding & Electronic Health Records (EHR)
+* Fast patient registration with automated unique Patient ID generation (PHY-XXXX).
+* Capture comprehensive medical profile: pre-existing conditions, prior surgeries, implants, red flags (e.g., cardiac pacemakers, osteoporosis).
+* Document attachment upload (X-Rays, MRI scans, medical referral letters).
+* Visual body chart selector to pinpoint pain areas (Cervical, Lumbar, Knee, Shoulder, Ankle, etc.).
+
+### B. Smart Appointment Booking & Queue Management (Clinic & Home Service)
+* Multi-therapist calendar view with color-coded slots (Available, Booked, In-Progress, Completed).
+* Service location toggle: **In-Clinic** vs. **Home Visit / Domiciliary Service**.
+* Walk-in token generator for waiting room display (for In-Clinic visits).
+* Prevention of double-booking across therapist schedules and treatment modalities/machines.
+* Automated SMS/WhatsApp notifications for appointment reminders and rescheduled slots.
+
+### C. Home Service (Domiciliary Physiotherapy) Management
+* Patient home location tracking: full address, landmark, Google Maps pin/coordinates, and alternate contact.
+* Travel buffer management: automatically block 30–45 mins travel time before and after home visits in the therapist's calendar.
+* Distance & conveyance calculation: auto-add travel charges based on distance (km) or flat zone-based travel fees.
+* Therapist portable kit checklist: track portable equipment taken for home sessions (Portable TENS/IFT, therapy bands, portable plinth).
+* Therapist home visit status tracking: Departed Clinic -> Arrived at Patient Home -> Session In-Progress -> Session Completed -> Returned.
+
+### D. Physiotherapy Assessment & SOAP Clinical Notes
+* Standardized orthopedic & neurological assessment templates:
+  * Visual Analog Scale (VAS) pain score slider (0 - 10).
+  * Range of Motion (ROM) measurement tracking (Degrees: Flexion, Extension, Abduction, etc.).
+  * Manual Muscle Testing (MMT) grades (Grade 0 to Grade 5).
+* SOAP Note logging for every visit with comparison against previous visits to measure recovery velocity.
+* One-click generation of Medical Assessment Reports for referring physicians or insurance.
+
+### E. Treatment Session Tracking & Modality Logs
+* Tracking multi-session packages vs. single sessions:
+  * Auto-decrement remaining sessions upon check-in for package holders (e.g. "Session 4 of 10").
+  * Immediate billing trigger for **Pay-Per-Session** patients upon session completion.
+* Modality checklist: Electrotherapy (TENS, IFT, Ultrasound, Shockwave), Thermotherapy, Manual therapy, Taping, Dry Needling.
+* Therapist clinical outcome notes and progress recording after each session.
+
+### F. Exercise Prescription & Digital Home Care
+* Built-in exercise library categorized by body region (Neck, Back, Shoulder, Hip, Knee).
+* Custom prescription builder: set sets, reps, frequency, and custom precaution notes.
+* Printable PDF exercise routine sheets with step-by-step visuals.
+* Direct WhatsApp/Email sharing link for patients to view their prescribed home exercises on mobile devices.
+
+### G. Billing & Invoicing (Bill Per Session & Package System)
+* **Bill Per Session (Pay-As-You-Go)**:
+  * Automatically generate an individual invoice immediately after each session is finished (or at check-in).
+  * Single-session invoice breakdown: Session Fee + Home Visit Travel Fee (if applicable) + Consumables/Kinesio Tape used.
+  * Instant payment receipt generation with Dynamic UPI QR Code, Cash, or Card.
+  * Track unpaid single sessions with an Outstanding Due alert on the patient profile before booking their next session.
+* **Prepaid Package Billing**:
+  * Multi-session discounted packages (e.g., 5, 10, or 20 sessions).
+  * Session-by-session balance deduction with zero-balance renewal prompts.
+* Combined billing for treatments + consumables (resistance bands, hot packs, braces).
+* Split payments and partial payment tracking with outstanding balance alerts.
+* Professional PDF invoice & tax receipt generation with clinic branding and QR code for UPI payments.
+
+### H. Equipment Management & Clinic Operations
+* Equipment calibration & preventive maintenance scheduler (alerting before service due dates).
+* Consumables stock tracking (physio tapes, ultrasound gel, massage creams, needles) with reorder alerts.
+* Portable equipment checkout register for therapists heading out for home visits.
+
+### I. Analytics, Financials & Reporting Dashboard
+* **Clinical Analytics**: Patient recovery rates, average sessions required per diagnosis, dropout rate.
+* **Financial Reports**:
+  * Per-session revenue vs. package revenue comparison.
+  * Home visit revenue vs. In-clinic revenue breakdown.
+  * Daily cash/UPI collections, therapist revenue generation, pending receivables, package renewals.
+* **Operational Metrics**: Peak clinic hours, cancellation/no-show ratios, patient retention and referral sources.
+* Export capabilities: CSV, Excel, and PDF formats.
+
+---
+
+## 5. Phased Implementation Roadmap
+
+### Phase 1: Foundation & Infrastructure (Days 1 - 3)
+* Install and scaffold Laravel application inside `/Applications/XAMPP/xamppfiles/htdocs/physio`.
+* Configure `.env` database connection to `DB_DATABASE=physio`, `DB_USERNAME=root`, `DB_PASSWORD=`.
+* Implement authentication with multi-role support using Spatie Laravel-Permission.
+* Set up admin layout theme (Tailwind/Bootstrap dashboard with responsive sidebar).
+
+### Phase 2: Database Modeling & Migrations (Days 4 - 6)
+* Create all Laravel migrations matching the schema defined in Section 3.
+* Set up Eloquent models, relationships (`hasMany`, `belongsTo`, `belongsToMany`), accessors, and scopes.
+* Build database seeders with dummy roles, admin user, physiotherapist accounts, standard physio services, and exercise templates.
+
+### Phase 3: Patient Registration & Appointment Scheduling (Days 7 - 11)
+* Build patient CRUD interface with search, filter, and document upload capabilities.
+* Implement FullCalendar.js for interactive appointment scheduling by date and therapist.
+* Build appointment booking modal supporting both **In-Clinic** and **Home Visit** consultations.
+* Configure travel buffer times and distance-based travel charge calculation for home visits.
+* Implement status transitions (Scheduled -> Checked-in / En Route -> In Treatment -> Completed).
+
+### Phase 4: Clinical EMR, Assessments & Session Logging (Days 12 - 16)
+* Develop the Initial Assessment form (pain scale, ROM, body area tags, clinical goals).
+* Build the SOAP note entry module with quick-select options for physiotherapy modalities.
+* Create the treatment session timeline view showing full patient progress over time.
+* Generate PDF clinical assessment summaries using DomPDF.
+
+### Phase 5: Billing (Per-Session & Packages) & Payment System (Days 17 - 20)
+* Develop services and packages master management (with separate rates for clinic vs home visits).
+* Build **Bill Per Session (Pay-As-You-Go)** engine:
+  * 1-click single session invoice generation upon session completion.
+  * Auto-calculation of Session Fee + Travel Allowance + Consumables Used.
+  * Real-time outstanding session due alerts.
+* Implement prepaid package purchase workflows and automatic session decrementing.
+* Build invoicing module with tax calculation, discounts, and payment receipts (with UPI QR code).
+* Create financial summary dashboard (Daily Collection Register, Home Visit vs Clinic Revenue).
+
+### Phase 6: Exercise Prescription & Patient Portal (Days 21 - 24)
+* Build exercise repository management (images/videos, instructions).
+* Create interactive routine builder for physiotherapists to assign exercises to patients.
+* Build printable / shareable digital home-care sheets for patients.
+
+### Phase 7: Testing, Polish & Deployment (Days 25 - 28)
+* Conduct role-based authorization checks (therapists only see their patients, reception cannot edit clinical notes).
+* Form validation, database indexing, and query optimization (eager loading to prevent N+1 issues).
+* Local deployment on XAMPP Apache virtual host (or `php artisan serve`).
+* Automated database backup script setup.
+
